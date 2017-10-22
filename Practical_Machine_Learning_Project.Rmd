@@ -1,0 +1,190 @@
+
+#Practical Machine Learning Course Project Report
+
+##1. Project Goal
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. 
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+##2. Data Sources
+The trainingData data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-trainingData.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testData.csv
+
+##3. Analysis and Prediction
+First we load the libraries needed for the analysis
+```{r results='hide', message=FALSE, warning=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+```
+Finally, load the same seed with the following line of code:
+```{r}
+set.seed(12345)
+```
+###3.1 Getting the data
+The trainingData data set can be found on the following URL:
+
+```{r}
+trainDataUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+```
+
+The testData data set can be found on the following URL:
+
+```{r}
+testDataUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+```
+
+###3.2 Load Data and Get Traning, Test Data set 
+
+```{r}
+trainingData <- read.csv(url(trainDataUrl), na.strings=c("NA","#DIV/0!",""))
+testData <- read.csv(url(testDataUrl), na.strings=c("NA","#DIV/0!",""))
+```
+
+Partioning the trainingData set for cross validation: 
+
+Partioning trainingData data set into two data sets, 60% for crossTrainData, 40% for crossTesting:
+
+```{r}
+inTrain <- createDataPartition(y=trainingData$classe, p=0.6, list=FALSE)
+crossTrainData <- trainingData[inTrain, ]; crossTesting <- trainingData[-inTrain, ]
+dim(crossTrainData); dim(crossTesting)
+```
+
+###3.3 Data Cleaning
+The following transformations were used:
+
+1. Clean NearZeroVariance Variables.
+
+```{r}
+nzvData <- nearZeroVar(crossTrainData, saveMetrics=TRUE)
+```
+Create another subset without NZV variables:
+
+```{r}
+nzvCrossTraining <- names(crossTrainData) %in% c("new_window", "kurtosis_roll_belt", "kurtosis_picth_belt",
+"kurtosis_yaw_belt", "skewness_roll_belt", "skewness_roll_belt.1", "skewness_yaw_belt",
+"max_yaw_belt", "min_yaw_belt", "amplitude_yaw_belt", "avg_roll_arm", "stddev_roll_arm",
+"var_roll_arm", "avg_pitch_arm", "stddev_pitch_arm", "var_pitch_arm", "avg_yaw_arm",
+"stddev_yaw_arm", "var_yaw_arm", "kurtosis_roll_arm", "kurtosis_picth_arm",
+"kurtosis_yaw_arm", "skewness_roll_arm", "skewness_pitch_arm", "skewness_yaw_arm",
+"max_roll_arm", "min_roll_arm", "min_pitch_arm", "amplitude_roll_arm", "amplitude_pitch_arm",
+"kurtosis_roll_dumbbell", "kurtosis_picth_dumbbell", "kurtosis_yaw_dumbbell", "skewness_roll_dumbbell",
+"skewness_pitch_dumbbell", "skewness_yaw_dumbbell", "max_yaw_dumbbell", "min_yaw_dumbbell",
+"amplitude_yaw_dumbbell", "kurtosis_roll_forearm", "kurtosis_picth_forearm", "kurtosis_yaw_forearm",
+"skewness_roll_forearm", "skewness_pitch_forearm", "skewness_yaw_forearm", "max_roll_forearm",
+"max_yaw_forearm", "min_roll_forearm", "min_yaw_forearm", "amplitude_roll_forearm",
+"amplitude_yaw_forearm", "avg_roll_forearm", "stddev_roll_forearm", "var_roll_forearm",
+"avg_pitch_forearm", "stddev_pitch_forearm", "var_pitch_forearm", "avg_yaw_forearm",
+"stddev_yaw_forearm", "var_yaw_forearm")
+
+crossTrainData <- crossTrainData[!nzvCrossTraining]
+
+dim(crossTrainData)
+```
+2. Remove the ID column
+
+```{r}
+crossTrainData <- crossTrainData[c(-1)]
+```
+3. Cleaning Variables with the threshold of 70% of NA's:
+```{r}
+#Copy crossTrainData
+training3 <- crossTrainData
+for(i in 1:length(crossTrainData)) { 
+        #if num of NAs > 70% of total observations
+        if( sum( is.na( crossTrainData[, i] ) ) /nrow(crossTrainData) >= .7 ) { 
+        for(j in 1:length(training3)) {
+            #if the columns are the same, remove the column
+            if( length( grep(names(crossTrainData[i]), names(training3)[j]) ) ==1)  {
+                training3 <- training3[ , -j]
+            }   
+        } 
+    }
+}
+
+dim(training3)
+```
+```{r}
+crossTrainData <- training3
+rm(training3)
+```
+Perform transformations on crossTesting and testData data sets.
+```{r}
+clean1 <- colnames(crossTrainData)
+clean2 <- colnames(crossTrainData[, -58])
+crossTesting <- crossTesting[clean1]
+testData <- testData[clean2]
+```
+
+Examine the result:
+
+```{r}
+dim(crossTesting)
+
+dim(testData)
+```
+Coerce the data into the same type in order to ensure proper functioning of Decision Trees and especially RandomForest Algorithm with the Test data set.
+```{r}
+for (i in 1:length(testData) ) {
+        for(j in 1:length(crossTrainData)) {
+        if( length( grep(names(crossTrainData[i]), names(testData)[j]) ) ==1)  {
+            class(testData[j]) <- class(crossTrainData[i])
+        }      
+    }      
+}
+
+testData <- rbind(crossTrainData[2, -58] , testData)
+testData <- testData[-1,]
+```
+###3.4 Modeling and Predicting with Decision Tree and Random Forest:
+
+1. Using Decision Tree for prediction: 
+```{r}
+modelDT <- rpart(classe ~ ., data=crossTrainData, method="class")
+```
+View the decision tree with fancy:
+```{r}
+fancyRpartPlot(modelDT)
+```
+
+Use the model created from Decision Tree for prediction:
+```{r}
+predictionsDT <- predict(modelDT, crossTesting, type = "class")
+```
+Use confusion Matrix to test results:
+```{r}
+confusionMatrix(predictionsDT, crossTesting$classe)
+```
+2. Using Random Forests for prediction:
+```{r}
+modelRF <- randomForest(classe ~. , data=crossTrainData)
+```
+Predicting us Random Forest:
+```{r}
+predictionsRF <- predict(modelRF, crossTesting, type = "class")
+```
+Use confusion Matrix to test results:
+```{r}
+confusionMatrix(predictionsRF, crossTesting$classe)
+```
+As we learned in the lecture, combining classifiers improves accuracy for prediction. In our case, the Ramdon Forest predictor already provides highly accurate prediction result thus no need to explore multiple models combined. 
+
+## Result
+As we can see from the above, Random Forests yielded highly accurate result - 99.85%. It is much better than Decision Tree - 81.67%.
+
+The prediction result for the quiz is as follows:
+
+```{r}
+predict(modelRF, testData, type = "class")
+```
+
